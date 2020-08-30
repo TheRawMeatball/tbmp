@@ -1,0 +1,2 @@
+[workspace]
+members = ["./tbmp_core", "./remote_channel", "./tbmp_remote_agent", "./tbmp"]

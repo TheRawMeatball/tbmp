@@ -1,0 +1,11 @@
+[package]
+name = "tbmp"
+version = "0.1.0"
+authors = ["TheRawMeatball <mucit.oguz@gmail.com>"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+tbmp_remote_agent = { path = "../tbmp_remote_agent" }
+tbmp_core = { path = "../tbmp_core" }
