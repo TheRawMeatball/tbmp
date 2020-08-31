@@ -1,5 +1,5 @@
-use tbmp_core::*;
 use std::net::*;
+use tbmp_core::*;
 
 pub fn connect<G: Game>(addr: SocketAddr) -> AgentCore<G> {
     let (tx, rx) = remote_channel::connect(addr).unwrap();

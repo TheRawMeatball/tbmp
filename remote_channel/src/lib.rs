@@ -1,6 +1,6 @@
 use crossbeam_channel;
 use crossbeam_channel::{Receiver, Sender};
-use serde::{Serialize, de::DeserializeOwned};
+use serde::{de::DeserializeOwned, Serialize};
 use std::error::Error;
 use std::io::prelude::*;
 use std::net::{Ipv4Addr, SocketAddr, TcpListener, TcpStream};

@@ -1,5 +1,5 @@
 use crossbeam_channel::{self, Receiver, Sender};
-use serde::{Serialize, Deserialize, de::DeserializeOwned};
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use std::vec::Vec;
 
 #[derive(Clone)]
@@ -33,32 +33,30 @@ pub enum MoveResult {
     Win(PlayerID),
 }
 
-pub trait Game : Serialize + DeserializeOwned + Send + Clone + 'static {
+pub trait Game: Serialize + DeserializeOwned + Send + Clone + 'static {
+    type Move: Serialize + DeserializeOwned + Copy + Send;
 
-    type Move : Serialize + DeserializeOwned + Copy + Send;
+    const PLAYER_COUNT: u8;
 
     fn validate_move(&self, qmove: Self::Move) -> Result<(), ()>;
     fn apply_move(&mut self, qmove: Self::Move) -> MoveResult;
     fn default_board() -> Self;
 
-    /// Accessors
-    fn player_count(&self) -> u8;
+    // Accessors
+    //fn player_count(&self) -> u8;
     fn turn_of(&self) -> u8;
 }
 
 pub fn new_game<G: Game>() -> Vec<AgentCore<G>> {
     let mut game = G::default_board();
 
-    let channels = (0..game.player_count()).fold(vec![], |mut tuples, _| {
-        tuples.push((
-            crossbeam_channel::unbounded::<G::Move>(),
-            crossbeam_channel::unbounded::<GameEvent<G>>(),
-        ));
-        tuples
-    });
-
-    let (cores, anti_cores) = channels
-        .into_iter()
+    let (cores, anti_cores) = (0..G::PLAYER_COUNT)
+        .map(|_| {
+            (
+                crossbeam_channel::unbounded::<G::Move>(),
+                crossbeam_channel::unbounded::<GameEvent<G>>(),
+            )
+        })
         .fold((vec![], vec![]), |mut vecs, channels| {
             vecs.0.push(AgentCore {
                 move_channel: (channels.0).0,
@@ -74,7 +72,7 @@ pub fn new_game<G: Game>() -> Vec<AgentCore<G>> {
     let mut main_thread = move || -> Result<(), Box<dyn std::error::Error>> {
         use GameEvent::*;
 
-        for i in 0..game.player_count() {
+        for i in 0..G::PLAYER_COUNT {
             anti_cores[i as usize]
                 .event_channel
                 .send(GameStart(Clone::clone(&game), i))
@@ -86,17 +84,12 @@ pub fn new_game<G: Game>() -> Vec<AgentCore<G>> {
             .send(YourTurn)
             .unwrap();
 
-        
-            
         loop {
-            let qmove = anti_cores[game.turn_of() as usize]
-                .move_channel
-                .recv()?;
+            let qmove = anti_cores[game.turn_of() as usize].move_channel.recv()?;
 
             if let Ok(()) = G::validate_move(&game, qmove) {
                 let current_player = game.turn_of();
-                for i in 0..game.player_count()
-                {
+                for i in 0..G::PLAYER_COUNT {
                     anti_cores[i as usize]
                         .event_channel
                         .send(MoveHappened(qmove))?;
@@ -104,15 +97,13 @@ pub fn new_game<G: Game>() -> Vec<AgentCore<G>> {
                 match G::apply_move(&mut game, qmove) {
                     MoveResult::Continue => {}
                     MoveResult::Draw => {
-                        for i in 0..game.player_count() {
-                            anti_cores[i as usize]
-                                .event_channel
-                                .send(GameEnd(None))?;
+                        for i in 0..G::PLAYER_COUNT {
+                            anti_cores[i as usize].event_channel.send(GameEnd(None))?;
                         }
                         break;
                     }
                     MoveResult::Win(side) => {
-                        for i in 0..game.player_count() {
+                        for i in 0..G::PLAYER_COUNT {
                             anti_cores[i as usize]
                                 .event_channel
                                 .send(GameEnd(Some(side)))?;
@@ -134,16 +125,14 @@ pub fn new_game<G: Game>() -> Vec<AgentCore<G>> {
                 continue;
             }
         }
-        
+
         Ok(())
     };
 
-    std::thread::spawn(move ||
-    {
+    std::thread::spawn(move || {
         if let Err(e) = main_thread() {
             println!("{:?}", e);
         } else {
-
         }
     });
 
