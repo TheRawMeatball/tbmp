@@ -66,7 +66,7 @@ where
     A: Send + Serialize + DeserializeOwned + 'static,
     B: Send + Serialize + DeserializeOwned + 'static,
 {
-    let listener = TcpListener::bind(SocketAddr::new(Ipv4Addr::LOCALHOST.into(), port))?;
+    let listener = TcpListener::bind(SocketAddr::new(Ipv4Addr::new(0, 0, 0, 0).into(), port))?;
     let (stream, _) = listener.accept()?;
     std::mem::drop(listener);
 
