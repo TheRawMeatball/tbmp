@@ -52,7 +52,7 @@ pub trait Game: Serialize + DeserializeOwned + Send + Clone + 'static {
 
 pub fn new_game<G: Game>() -> (
     Vec<AgentCore<G>>,
-    impl FnMut() -> Result<MoveResult, Box<dyn Error>>,
+    impl FnMut() -> Result<(), Box<dyn Error>>,
 ) {
     let mut game = G::initial_server();
 
@@ -94,7 +94,7 @@ pub fn new_game<G: Game>() -> (
         .send(GameEvent::YourTurn)
         .unwrap();
 
-    let main_loop = move || -> Result<MoveResult, Box<dyn Error>> {
+    let main_loop = move || -> Result<(), Box<dyn Error>> {
         use GameEvent::*;
         if let Ok(qmove) = anti_cores[game.turn_of() as usize].move_channel.try_recv() {
             if let Ok(()) = G::validate_move(&game, qmove) {
@@ -110,7 +110,7 @@ pub fn new_game<G: Game>() -> (
                         for i in 0..G::PLAYER_COUNT {
                             anti_cores[i as usize].event_channel.send(GameEnd(None))?;
                         }
-                        return Ok(MoveResult::Draw);
+                        return Ok(());
                     }
                     MoveResult::Win(side) => {
                         for i in 0..G::PLAYER_COUNT {
@@ -118,7 +118,7 @@ pub fn new_game<G: Game>() -> (
                                 .event_channel
                                 .send(GameEnd(Some(side)))?;
                         }
-                        return Ok(MoveResult::Win(side));
+                        return Ok(());
                     }
                 }
 
@@ -135,7 +135,7 @@ pub fn new_game<G: Game>() -> (
             }
         }
 
-        Ok(MoveResult::Continue)
+        Ok(())
     };
 
     (cores, main_loop)
