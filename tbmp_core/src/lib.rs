@@ -1,6 +1,6 @@
 use crossbeam_channel::{self, Receiver, Sender};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
-use std::vec::Vec;
+use std::{error::Error, vec::Vec};
 
 #[derive(Clone)]
 pub struct AgentCore<G: Game> {
@@ -40,53 +40,63 @@ pub trait Game: Serialize + DeserializeOwned + Send + Clone + 'static {
 
     fn validate_move(&self, qmove: Self::Move) -> Result<(), ()>;
     fn apply_move(&mut self, qmove: Self::Move) -> MoveResult;
-    fn default_board() -> Self;
 
-    // Accessors
-    //fn player_count(&self) -> u8;
+    fn initial_server() -> Self;
+    fn initial_for_player(&self, _: PlayerID) -> Self {
+        Clone::clone(self)
+    }
+
+    // Accessor
     fn turn_of(&self) -> u8;
 }
 
-pub fn new_game<G: Game>() -> Vec<AgentCore<G>> {
-    let mut game = G::default_board();
+pub fn new_game<G: Game>() -> (
+    Vec<AgentCore<G>>,
+    impl FnMut() -> Result<MoveResult, Box<dyn Error>>,
+) {
+    let mut game = G::initial_server();
 
-    let (cores, anti_cores) = (0..G::PLAYER_COUNT)
+    let (cores, mut anti_cores) = (0..G::PLAYER_COUNT)
         .map(|_| {
             (
                 crossbeam_channel::unbounded::<G::Move>(),
                 crossbeam_channel::unbounded::<GameEvent<G>>(),
             )
         })
-        .fold((vec![], vec![]), |mut vecs, channels| {
-            vecs.0.push(AgentCore {
-                move_channel: (channels.0).0,
-                event_channel: (channels.1).1,
-            });
-            vecs.1.push(AntiCore {
-                move_channel: (channels.0).1,
-                event_channel: (channels.1).0,
-            });
-            vecs
+        .map(|channels| {
+            (
+                AgentCore {
+                    move_channel: (channels.0).0,
+                    event_channel: (channels.1).1,
+                },
+                AntiCore {
+                    move_channel: (channels.0).1,
+                    event_channel: (channels.1).0,
+                },
+            )
+        })
+        .unzip::<_, AntiCore<_>, Vec<_>, Vec<_>>();
+
+    anti_cores
+        .iter_mut()
+        .map(|x| &x.event_channel)
+        .enumerate()
+        .for_each(|(i, x)| {
+            x.send(GameEvent::GameStart(
+                game.initial_for_player(i as u8),
+                i as u8,
+            ))
+            .unwrap()
         });
 
-    let mut main_thread = move || -> Result<(), Box<dyn std::error::Error>> {
+    anti_cores[game.turn_of() as usize]
+        .event_channel
+        .send(GameEvent::YourTurn)
+        .unwrap();
+
+    let main_loop = move || -> Result<MoveResult, Box<dyn Error>> {
         use GameEvent::*;
-
-        for i in 0..G::PLAYER_COUNT {
-            anti_cores[i as usize]
-                .event_channel
-                .send(GameStart(Clone::clone(&game), i))
-                .unwrap();
-        }
-
-        anti_cores[game.turn_of() as usize]
-            .event_channel
-            .send(YourTurn)
-            .unwrap();
-
-        loop {
-            let qmove = anti_cores[game.turn_of() as usize].move_channel.recv()?;
-
+        if let Ok(qmove) = anti_cores[game.turn_of() as usize].move_channel.try_recv() {
             if let Ok(()) = G::validate_move(&game, qmove) {
                 let current_player = game.turn_of();
                 for i in 0..G::PLAYER_COUNT {
@@ -100,7 +110,7 @@ pub fn new_game<G: Game>() -> Vec<AgentCore<G>> {
                         for i in 0..G::PLAYER_COUNT {
                             anti_cores[i as usize].event_channel.send(GameEnd(None))?;
                         }
-                        break;
+                        return Ok(MoveResult::Draw);
                     }
                     MoveResult::Win(side) => {
                         for i in 0..G::PLAYER_COUNT {
@@ -108,7 +118,7 @@ pub fn new_game<G: Game>() -> Vec<AgentCore<G>> {
                                 .event_channel
                                 .send(GameEnd(Some(side)))?;
                         }
-                        break;
+                        return Ok(MoveResult::Win(side));
                     }
                 }
 
@@ -122,19 +132,11 @@ pub fn new_game<G: Game>() -> Vec<AgentCore<G>> {
                 anti_cores[game.turn_of() as usize]
                     .event_channel
                     .send(InvalidMove)?;
-                continue;
             }
         }
 
-        Ok(())
+        Ok(MoveResult::Continue)
     };
 
-    std::thread::spawn(move || {
-        if let Err(e) = main_thread() {
-            println!("{:?}", e);
-        } else {
-        }
-    });
-
-    cores
+    (cores, main_loop)
 }
