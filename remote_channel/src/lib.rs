@@ -65,20 +65,22 @@ where
     Ok((tx1, rx2, connection_handler(rx1, tx2, stream)))
 }
 
-pub fn offer_connection<A, B>(
-    tx: Sender<B>,
-    rx: Receiver<A>,
+pub fn offer_connections<A, B>(
+    channels: Vec<(Sender<B>, Receiver<A>)>,
     port: u16,
-) -> Result<impl FnMut() -> Result<(), Box<dyn Error>>, Box<dyn Error>>
+) -> Result<Vec<impl FnMut() -> Result<(), Box<dyn Error>>>, Box<dyn Error>>
 where
     A: Send + Serialize + DeserializeOwned + 'static,
     B: Send + Serialize + DeserializeOwned + 'static,
 {
     let listener = TcpListener::bind(SocketAddr::new(Ipv4Addr::new(0, 0, 0, 0).into(), port))?;
-    let (stream, _) = listener.accept()?;
-    std::mem::drop(listener);
-
-    Ok(connection_handler(rx, tx, stream))
+    Ok(channels
+        .into_iter()
+        .map(|(tx, rx)| {
+            let (stream, _) = listener.accept().unwrap();
+            connection_handler(rx, tx, stream)
+        })
+        .collect())
 }
 
 fn connection_handler<A, B>(
