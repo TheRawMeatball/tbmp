@@ -95,15 +95,24 @@ where
     stream.set_nonblocking(true).unwrap();
 
     move || {
-        if let Ok(msg) = rx1.try_recv() {
+        stream.set_nonblocking(false).unwrap();
+        while let Some(msg) = rx1.try_iter().next() {
             let bytes = bincode::serialize(&msg)?;
             stream.write(&bytes)?;
         }
 
+        stream.set_nonblocking(true).unwrap();
         let mut buf = [0u8; 1024];
-        if let Ok(_) = stream.read(&mut buf) {
-            let msg = bincode::deserialize(&buf)?;
-            tx2.send(msg)?;
+        if let Ok(size) = stream.read(&mut buf) {
+            let mut processed = 0;
+            loop {
+                let msg  = bincode::deserialize(&buf[processed..size])?;
+                processed += bincode::serialized_size(&msg)? as usize;
+                tx2.send(msg)?;
+                if processed == size {
+                    break;
+                }
+            }
         }
 
         Ok(())
