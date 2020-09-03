@@ -13,7 +13,7 @@ struct AntiCore<G: Game> {
     pub event_channel: Sender<GameEvent<G>>,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Debug)]
 pub enum GameEvent<G: Game> {
     #[serde(bound = "")]
     GameStart(G, PlayerID),
